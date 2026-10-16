@@ -244,7 +244,7 @@ ar:{
  search:'ابحث برقم الحجز أو الكونتينر أو المورد أو المحطة', refresh:'تحديث', syncing:'جاري التحديث', sync_now:'مزامنة الآن',
  updated:'آخر تحديث', running:'النظام شغال', paused:'النظام متوقف', demo:'نسخة تجريبية', demo_note:'البيانات التجريبية محلية ومش متصلة بالشيت.',
  connect_t:'اربط المكتب بالشيت', connect_p:'ألصق رابط الـWeb app والمفتاح من قائمة Trucking System > Web UI.', url:'رابط الـWeb app', key:'المفتاح', connect:'اتصال', try_demo:'جرّب بنسخة تجريبية', disconnect:'فصل الاتصال',
- bad_key:'المفتاح غلط أو منتهي.', net_err:'مقدرتش أوصل للـAPI. اتأكد من الرابط وإن الـWeb app منشور لـ Anyone.', need_admin:'العملية دي محتاجة مفتاح ADMIN.',
+ bad_key:'المفتاح غلط أو منتهي.', net_err:'مقدرتش أوصل للـAPI. اتأكد من الرابط وإن الـWeb app منشور لـ Anyone.', need_admin:'العملية دي محتاجة مفتاح ADMIN.', connecting:'جاري الاتصال…', bad_url:'الرابط غلط. لازم يبدأ بـ https://script.google.com/macros/s/ وينتهي بـ /exec (مش رابط المحرر /edit).', need_both:'ألصق الرابط والمفتاح الأول.', html_resp:'الرابط رجّع صفحة بدل بيانات: انشر الـWeb app (Execute as: Me / Access: Anyone) وانشر Version جديد بعد آخر تعديل.',
  today_h:'اليوم', today_sub:(n,c,i)=>`${c} حاوية للتحميل النهارده في ${n} حجز، و${i} حجز محتاج تدخل.`, all_ok:'كل حاجة ماشية.',
  k_open:'حجوزات مفتوحة', k_cont:'حاويات', k_today:'تحميل النهارده', k_attn:'محتاجة تدخل', k_late:'متأخرة', k_loaded:'اتحملت',
  runway:'جدول التحميل', late:'متأخر', undated:'بدون تاريخ', am:'صباحًا', pm:'مساءً', noap:'بدون فترة', none_here:'فاضي',
@@ -277,7 +277,7 @@ en:{
  search:'Search booking, container, vendor or station', refresh:'Refresh', syncing:'Refreshing', sync_now:'Sync now',
  updated:'Updated', running:'System running', paused:'System paused', demo:'Demo', demo_note:'Demo data is local and not connected to the sheet.',
  connect_t:'Connect the desk to the sheet', connect_p:'Paste the web app URL and key from Trucking System > Web UI.', url:'Web app URL', key:'Key', connect:'Connect', try_demo:'Try the demo', disconnect:'Disconnect',
- bad_key:'The key is wrong or expired.', net_err:'Could not reach the API. Check the URL and that the web app is deployed for Anyone.', need_admin:'This action needs the ADMIN key.',
+ bad_key:'The key is wrong or expired.', net_err:'Could not reach the API. Check the URL and that the web app is deployed for Anyone.', need_admin:'This action needs the ADMIN key.', connecting:'Connecting…', bad_url:'Bad URL. It must start with https://script.google.com/macros/s/ and end with /exec (not the /edit editor link).', need_both:'Paste the URL and the key first.', html_resp:'The URL returned a page instead of data: deploy the web app (Execute as: Me / Access: Anyone) and publish a new version after your last edit.',
  today_h:'Today', today_sub:(n,c,i)=>`${c} container${c===1?'':'s'} load${c===1?'s':''} today across ${n} booking${n===1?'':'s'}; ${i} need${i===1?'s':''} attention.`, all_ok:'Everything is on track.',
  k_open:'Open bookings', k_cont:'Containers', k_today:'Loading today', k_attn:'Need attention', k_late:'Late', k_loaded:'Loaded',
  runway:'Loading schedule', late:'Late', undated:'No date', am:'Morning', pm:'Afternoon', noap:'No slot', none_here:'Empty',
@@ -367,13 +367,14 @@ async function api(action,payload={}){
   if(S.demo) return Demo.call(action,payload);
   let r; try{ r = await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({key:S.key,action},payload)),redirect:'follow'}) }
   catch(e){ throw new Error(t('net_err')) }
-  let j; try{ j=await r.json() }catch(e){ throw new Error(t('net_err')) }
+  let tx=''; try{ tx=await r.text() }catch(e){ throw new Error(t('net_err')) }
+  let j; try{ j=JSON.parse(tx) }catch(e){ throw new Error(/^\s*</.test(tx)?t('html_resp'):t('net_err')) }
   if(!j.ok){ if(j.error==='auth') throw new Error(t('bad_key')); if(j.error==='forbidden') throw new Error(t('need_admin')); throw new Error(j.message||j.error||'error') }
   return j;
 }
 async function load(manual){
   if(S.busy) return; S.busy=true; S.err=''; if(manual) render();
-  try{ const j=await api('snapshot'); S.role=j.role||S.role; S.data=j.data; S.fetchedAt=Date.now(); build() }
+  try{ if(manual&&!S.demo) await api('ping'); const j=await api('snapshot'); S.role=j.role||S.role; S.data=j.data; S.fetchedAt=Date.now(); build() }
   catch(e){ S.err=e.message }
   S.busy=false; render();
 }
@@ -517,7 +518,7 @@ function vConnect(){
   <label for="c-url">${t('url')}</label><input id="c-url" value="${esc(S.url)}" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
   <label for="c-key">${t('key')}</label><input id="c-key" type="password" value="${esc(S.key)}" autocomplete="off">
   ${S.err?`<p style="color:var(--red)">${esc(S.err)}</p>`:''}
-  <div class="row" style="margin-top:16px"><button class="btn primary" data-connect>${t('connect')}</button><button class="btn" data-demo>${t('try_demo')}</button><button class="btn sm" data-lang style="margin-inline-start:auto">${t('lang')}</button></div></div></div>`;
+  <div class="row" style="margin-top:16px"><button class="btn primary" data-connect ${S.connecting?'disabled':''}>${S.connecting?t('connecting'):t('connect')}</button><button class="btn" data-demo ${S.connecting?'disabled':''}>${t('try_demo')}</button><button class="btn sm" data-lang style="margin-inline-start:auto">${t('lang')}</button></div></div></div>`;
 }
 
 /* ---------- shell ---------- */
@@ -538,7 +539,8 @@ function shell(inner){
 function render(){
   document.documentElement.lang=S.lang; document.documentElement.dir=S.lang==='ar'?'rtl':'ltr';
   const root=$('#root'); const ae=document.activeElement, keep=ae&&ae.id==='q'?ae.selectionStart:null;
-  if(!S.data && !S.busy){ root.innerHTML = vConnect(); return }
+  if(!S.data && !S.busy){ root.innerHTML = vConnect(); bind(); return }
+  if(!S.data&&S.connecting){ root.innerHTML = vConnect(); bind(); return }
   if(!S.data){ root.innerHTML = shell(`<div class="empty" style="padding:40px">${t('loading')}…</div>`); bind(); return }
   const V={today:vToday,book:vBook,review:vReview,vendors:vVendors,control:vControl,activity:vActivity}[S.view]||vToday;
   root.innerHTML=shell(V()); bind();
@@ -606,9 +608,12 @@ function bind(){
     try{ const j=await act('review',{row:row,booking:x.booking,type:x.type,decision:e.currentTarget.dataset.rvact,value:val?val.value:undefined,reason:why?why.value:undefined}); if(j.status&&!/^(Done|Ignored|Undone)/.test(j.status)) toast(j.status,true); else toast(t('done')) }catch(err){} });
   const q=$('#q'); if(q) q.addEventListener('input',e=>{ S.q=e.target.value; clearTimeout(bind.t); bind.t=setTimeout(render,180) });
   const cn=R.querySelector('[data-connect]');
-  if(cn) cn.addEventListener('click',async()=>{ S.url=$('#c-url').value.trim(); S.key=$('#c-key').value.trim(); S.demo=false; LS.set('url',S.url); LS.set('key',S.key); LS.del('demo'); S.err=''; await load(true) });
+  if(cn) cn.addEventListener('click',async()=>{ const u=$('#c-url').value.trim(), k=$('#c-key').value.trim(); S.url=u; S.key=k; S.demo=false; S.err='';
+    if(!u||!k){ S.err=t('need_both'); render(); return }
+    if(!/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[^/]+\/exec\/?$/.test(u)){ S.err=t('bad_url'); render(); return }
+    LS.set('url',u); LS.set('key',k); LS.del('demo'); S.connecting=true; render();
+    try{ await load(true) } finally{ S.connecting=false; render() } });
   const dm=R.querySelector('[data-demo]'); if(dm) dm.addEventListener('click',async()=>{ S.demo=true; S.role='admin'; LS.set('demo','1'); Demo.reset(); await load(true) });
-  if(!S.data){ const l=R.querySelector('[data-lang]'); if(l) l.addEventListener('click',()=>{ S.lang=S.lang==='ar'?'en':'ar'; LS.set('lang',S.lang); render() }) }
 }
 function bindDrawer(b){
   const el=$('#drawer');
